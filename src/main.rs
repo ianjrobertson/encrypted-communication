@@ -1,76 +1,18 @@
-use std::{io::{Read, Write}, net::TcpStream};
-
+use std::{fmt::format, io::{Read, Write}, net::TcpStream};
 mod messages;
 use messages::{EncryptedMessage, HelloMessage, ServerResponse};
 use rand::{RngCore, thread_rng};
+use rsa::{RsaPublicKey, pkcs8::DecodePublicKey, sha2::Sha256};
+use rsa::pkcs1v15::{Signature, VerifyingKey};
+use rsa::signature::Verifier;
 
 fn main() {
-    let mut stream = match TcpStream::connect("127.0.0.1:2222") {
-        Ok(stream) => stream,
-        Err(_e) => {
-            println!("Could not connect to server. Check that it is running");
-            return ();
-        }
-    };
-    println!("Connected to server");
-    
-    // sends a Hello Message
-    let mut nonce = [0u8; 32];
-    thread_rng().fill_bytes(&mut nonce);
-
-    let hello = HelloMessage {
-        signed_message: vec![],
-        pub_key: "".to_string(),
-        nonce,
-    };
-    let json = match hello.to_json() {
-        Ok(json) => json,
-        Err(e) => {
-            println!("Could not convert message to json {e}");
-            return();
-        }
+    let (stream, public_key) = match connect().and_then(handshake) {
+        Ok(result) => result,
+        Err(e) => { println!("{e}"); return;}
     };
 
-    // TODO items: refactor this code into a function that returns a success or fail for the connect case
-    // If the conncect is succussful, keep looping and sending messages to the server
-    // If the connect is unsuccseful return
-
-    match stream.write_all(json.as_bytes()) {
-        Ok(_value) => {
-            println!("Sent hello message to server");
-
-            // parses the server response
-
-            // we assume that all messages are shorter than 4096 bytes and
-            // will be read in one call to read()
-            let mut buffer = [0; 4096];
-            let bytes_read = match stream.read(&mut buffer) {
-                Ok(bytes_read) => bytes_read,
-                Err(e) => {
-                    println!("An error occured reading from the server");
-                    return();
-                }
-            };
-            // an example of how to convert the buffer to a JSON string
-            // you can do something similar for other message types
-            let server_hello_json = str::from_utf8(&buffer[..bytes_read]).expect("Server hello not in UTF8");
-            println!("{server_hello_json}");
-
-            // The client sends the server a Hello Message containing a nonce
-            // The server responds with a Hello Message that includes its RSA public key (in PEM format), the nonce, and a signed version of the nonce
-            // The client verifies the signature and, if it is valid, accepts the server’s public key
-
-            // loops
-            //     reads some text from the terminal
-            //     if the text is “exit”, break from the loop
-            //     otherwise, send an Encrypted Message
-            //     parse the Server Response
-        }
-        Err(e) => {
-            println!("Could not send hello message to server, {e}");
-            return();
-        }
-    }
+    println!("Successfully connected and verified connection");
 }
 // For every message the client sends to the server it:
 
@@ -94,5 +36,47 @@ fn main() {
 //     if the text is “exit”, break from the loop
 //     otherwise, send an Encrypted Message
 //     parse the Server Response
+
+fn connect() -> Result<TcpStream, String> {
+    let stream = TcpStream::connect("127.0.0.1:2222").map_err(|e| format!("Could not connect to server: {e}"))?;
+    println!("Connected to server");
+    Ok(stream)
+}
+
+fn handshake(mut stream: TcpStream) -> Result<(TcpStream, RsaPublicKey), String> {
+    let mut nonce = [0u8; 32];
+    thread_rng().fill_bytes(&mut nonce);
+
+    let hello = HelloMessage {
+        signed_message: vec![],
+        pub_key: "".to_string(),
+        nonce,
+    };
+    let json: String = hello.to_json().map_err(|e: serde_json::Error| format!("Could not create hello message payload: {e}"))?;
+    stream.write_all(json.as_bytes()).map_err(|e: std::io::Error| format!("Could not send message: {e}"))?;
+
+    let mut buffer: [u8; 4096] = [0; 4096];
+    let bytes_read: usize = stream.read(&mut buffer).map_err(|e: std::io::Error| format!("Could not read message: {e}"))?;
+    
+    let server_hello_json: &str = str::from_utf8(&buffer[..bytes_read]).expect("Server hello not in UTF8");
+    let server_hello = HelloMessage::from_json(server_hello_json.to_string()).map_err(|e| format!("Could not parse hello message{e}"))?;
+
+    let pub_key = match RsaPublicKey::from_public_key_pem(&server_hello.pub_key) {
+        Ok(key) => key,
+        Err(error) => panic!("Could not convert public key from PEM {}", error),
+    };
+
+    let verifying_key: VerifyingKey<Sha256> = VerifyingKey::<Sha256>::new(pub_key.clone());
+    let signature: Signature = Signature::try_from(server_hello.signed_message.as_ref()).expect("Could not convert signature");
+
+    match verifying_key.verify(&nonce, &signature) {
+        Ok(_) => (),
+        Err(_e) => {
+            return Err("Could not verify signature!".to_string());
+        }
+    };
+
+    Ok((stream, pub_key))
+}
 
 
