@@ -31,9 +31,16 @@ fn main() {
         }
     };
 
+    // TODO items: refactor this code into a function that returns a success or fail for the connect case
+    // If the conncect is succussful, keep looping and sending messages to the server
+    // If the connect is unsuccseful return
+
     match stream.write_all(json.as_bytes()) {
         Ok(_value) => {
             println!("Sent hello message to server");
+
+            // parses the server response
+
             // we assume that all messages are shorter than 4096 bytes and
             // will be read in one call to read()
             let mut buffer = [0; 4096];
@@ -48,25 +55,23 @@ fn main() {
             // you can do something similar for other message types
             let server_hello_json = str::from_utf8(&buffer[..bytes_read]).expect("Server hello not in UTF8");
             println!("{server_hello_json}");
+
+            // The client sends the server a Hello Message containing a nonce
+            // The server responds with a Hello Message that includes its RSA public key (in PEM format), the nonce, and a signed version of the nonce
+            // The client verifies the signature and, if it is valid, accepts the server’s public key
+
+            // loops
+            //     reads some text from the terminal
+            //     if the text is “exit”, break from the loop
+            //     otherwise, send an Encrypted Message
+            //     parse the Server Response
         }
         Err(e) => {
             println!("Could not send hello message to server, {e}");
             return();
         }
     }
-
-    // parses the server response
-    // loops
-
-    //     reads some text from the terminal
-    //     if the text is “exit”, break from the loop
-    //     otherwise, send an Encrypted Message
-    //     parse the Server Response
 }
-
-// The client sends the server a Hello Message containing a nonce
-// The server responds with a Hello Message that includes its RSA public key (in PEM format), the nonce, and a signed version of the nonce
-// The client verifies the signature and, if it is valid, accepts the server’s public key
 // For every message the client sends to the server it:
 
 //     Creates a new symmetric key K and a nonce
