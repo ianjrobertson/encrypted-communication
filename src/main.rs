@@ -1,30 +1,53 @@
-use std::{fmt::format, io::{Read, Write}, net::TcpStream};
+use std::{default, fmt::format, io::{Read, Write}, net::TcpStream};
 mod messages;
 use messages::{EncryptedMessage, HelloMessage, ServerResponse};
 use rand::{RngCore, thread_rng};
 use rsa::{RsaPublicKey, pkcs8::DecodePublicKey, sha2::Sha256};
 use rsa::pkcs1v15::{Signature, VerifyingKey};
 use rsa::signature::Verifier;
+use colored::Colorize;
+use std::io::{self, BufRead};
 
-fn main() {
+fn main() -> Result<(), String> {
     // sends a Hello Message
     // parses the server response
-    let (stream, public_key) = match connect().and_then(handshake) {
+    let (mut stream, public_key) = match connect().and_then(handshake) {
         Ok(result) => result,
-        Err(e) => { println!("{e}"); return;}
+        Err(e) => return Err(format!("An error occured connecting to the server {e}"))
     };
 
-    println!("Successfully connected and verified connection");
+    println!("{} connected and {} connection", "Successfully".green(), "verified".green());
+    println!("Type a question or {} to exit\n", "exit".yellow());
 
     loop {
         //     reads some text from the terminal
-        //     if the text is “exit”, break from the loop
-        //     otherwise, send an Encrypted Message
-            // For every message the client sends to the server it:
-            //     Creates a new symmetric key K and a nonce
-            //     Encrypts the key K with the server’s public key
-            //     Encrypts the message with K
-            //     Sends the server an Encrypted Message message that includes the encrypted key, the nonce, and the encrypted message
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).expect("could not read line");
+        let input = input.trim();
+        if input.is_empty() {
+            continue;
+        }
+        match input {
+            //     if the text is “exit”, break from the loop
+            "exit" => {
+                return Ok(());
+            }
+            //     otherwise, send an Encrypted Message
+            message => {
+                println!("{}", message);
+                let response = send_encrypted_message(&mut stream, &public_key, &input)?;
+
+                // For every message the client sends to the server it:
+                //     Creates a new symmetric key K and a nonce
+                //     Encrypts the key K with the server’s public key
+                //     Encrypts the message with K
+                //     Sends the server an Encrypted Message message that includes the encrypted key, the nonce, and the encrypted message
+
+            }
+        }
+        
+        
+
         //     parse the Server Response
         // The server responds to an Encrypted Message with a Server Response that includes:
 
@@ -35,7 +58,6 @@ fn main() {
 
 fn connect() -> Result<TcpStream, String> {
     let stream = TcpStream::connect("127.0.0.1:2222").map_err(|e| format!("Could not connect to server: {e}"))?;
-    println!("Connected to server");
     Ok(stream)
 }
 
@@ -75,4 +97,7 @@ fn handshake(mut stream: TcpStream) -> Result<(TcpStream, RsaPublicKey), String>
     Ok((stream, pub_key))
 }
 
+fn send_encrypted_message(stream: &mut TcpStream, pub_key: &RsaPublicKey, message: &str) -> Result<ServerResponse, String> {
+    todo!()
+}
 
